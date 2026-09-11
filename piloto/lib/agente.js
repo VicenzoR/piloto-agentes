@@ -1,0 +1,66 @@
+import Anthropic from "@anthropic-ai/sdk";
+import empresa from "../config/empresa.json";
+
+let _client;
+const client = { messages: { create: (...a) => (_client ||= new Anthropic()).messages.create(...a) } };
+
+const SYSTEM = `Você é o atendente virtual da ${empresa.nome} (${empresa.cidade}) no WhatsApp.
+
+REGRAS ABSOLUTAS
+- Só informe preços, serviços, horários, endereço e formas de pagamento que estejam no CATÁLOGO abaixo. Se não estiver lá, não invente: use a ferramenta chamar_equipe.
+- Nunca: ${empresa.temas_proibidos.join("; ")}.
+- Se o cliente pedir desconto, condição especial, reclamar ou parecer irritado, use chamar_equipe.
+- Se o cliente quiser marcar horário, colete serviço e dia/horário desejado e use registrar_agendamento. Diga que a equipe vai confirmar.
+- Se o cliente escrever SAIR, use chamar_equipe com motivo "opt-out" e responda apenas que ele não receberá mais mensagens.
+- Responda curto (máximo 3 frases), em português informal e educado, sem emojis em excesso, sem markdown.
+- Na primeira mensagem, diga que é o atendimento automático da clínica.
+
+CATÁLOGO
+Horário: ${empresa.horario}
+Endereço: ${empresa.endereco}
+Pagamento: ${empresa.pagamento}
+Políticas: ${empresa.politicas.join(" ")}
+Serviços:
+${empresa.servicos.map((s) => `- ${s.nome}: R$ ${s.preco} (${s.duracao})`).join("\n")}`;
+
+const TOOLS = [
+  {
+    name: "registrar_agendamento",
+    description: "Registra um pedido de agendamento para a equipe confirmar.",
+    input_schema: { type: "object", properties: { servico: { type: "string" }, data_hora: { type: "string", description: "Dia e horário como o cliente disse" } }, required: ["servico", "data_hora"] },
+  },
+  {
+    name: "chamar_equipe",
+    description: "Passa a conversa para um atendente humano quando você não deve ou não consegue responder.",
+    input_schema: { type: "object", properties: { motivo: { type: "string" } }, required: ["motivo"] },
+  },
+];
+
+// Retorna { resposta, acoes: [{tipo, dados}] }
+export async function responder(historicoMsgs) {
+  const messages = historicoMsgs
+    .filter((m) => m.autor !== "sistema")
+    .map((m) => ({ role: m.autor === "cliente" ? "user" : "assistant", content: m.texto }));
+  // A API exige começar com user e alternar; junta mensagens seguidas do mesmo papel.
+  const compact = [];
+  for (const m of messages) {
+    const last = compact[compact.length - 1];
+    if (last && last.role === m.role) last.content += "\n" + m.content; else compact.push({ ...m });
+  }
+  if (compact.length === 0 || compact[0].role !== "user") compact.unshift({ role: "user", content: "(início da conversa)" });
+
+  const acoes = [];
+  let resposta = "";
+  let msgs = compact;
+  for (let i = 0; i < 3; i++) {
+    const r = await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 400, system: SYSTEM, tools: TOOLS, messages: msgs });
+    for (const b of r.content) {
+      if (b.type === "text") resposta += b.text;
+      if (b.type === "tool_use") acoes.push({ tipo: b.name, dados: b.input, id: b.id });
+    }
+    if (r.stop_reason !== "tool_use") break;
+    msgs = [...msgs, { role: "assistant", content: r.content },
+      { role: "user", content: r.content.filter((b) => b.type === "tool_use").map((b) => ({ type: "tool_result", tool_use_id: b.id, content: "ok, registrado" })) }];
+  }
+  return { resposta: resposta.trim(), acoes };
+}

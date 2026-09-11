@@ -1,0 +1,25 @@
+{
+  "nome": "Clínica Vitta Estética",
+  "cidade": "Vitória, ES",
+  "horario": "Segunda a sexta das 8h às 19h, sábado das 8h às 13h",
+  "endereco": "Rua Exemplo, 100, Jardim da Penha, Vitória",
+  "pagamento": "Pix, cartão de crédito em até 6x, dinheiro",
+  "politicas": [
+    "Avaliação inicial é gratuita.",
+    "Remarcação com pelo menos 24h de antecedência.",
+    "Não damos desconto fora da tabela sem autorização da gerência."
+  ],
+  "servicos": [
+    { "nome": "Tratamento capilar (4 sessões)", "preco": 890, "duracao": "45 min por sessão" },
+    { "nome": "Aplicação de toxina botulínica (testa)", "preco": 1200, "duracao": "30 min" },
+    { "nome": "Limpeza de pele", "preco": 180, "duracao": "60 min" },
+    { "nome": "Drenagem linfática (sessão)", "preco": 150, "duracao": "50 min" },
+    { "nome": "Pacote facial completo", "preco": 2400, "duracao": "6 sessões" }
+  ],
+  "temas_proibidos": [
+    "prometer resultado de procedimento",
+    "dar desconto fora da tabela",
+    "informar prazo, garantia ou condição que não esteja neste arquivo",
+    "orientação médica ou sobre medicamentos"
+  ]
+}
