@@ -8,7 +8,9 @@ import empresa from "@/config/empresa.json";
 // Envia lembrete (template aprovado) para contas vencidas há pelo menos dias_min dias,
 // no máximo uma vez a cada 7 dias por conta, só em horário comercial.
 export async function POST(req) {
-  const { senha, dias_min = 3 } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const senha = body.senha || req.headers.get("x-senha");
+  const dias_min = body.dias_min ?? 3;
   if (senha !== process.env.PAINEL_SENHA) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
 
   const hora = new Date().getUTCHours() - 3; // Brasília
