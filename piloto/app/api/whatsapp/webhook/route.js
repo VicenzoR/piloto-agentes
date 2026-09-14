@@ -30,7 +30,9 @@ export async function POST(req) {
     await salvarMensagem(conversa.id, "cliente", texto, msg.id);
     await registrarEvento(empresa.id, "mensagem_recebida", { telefone, texto });
 
-    // Conversa já está com humano: só grava e avisa
+    // Conversa assumida por um atendente de verdade: a IA fica em silêncio.
+    // Escalação automática (sem ninguém ter assumido) não silencia a IA: ela
+    // segue respondendo o que está no catálogo, e só o assunto escalado fica com a equipe.
     if (conversa.atendido_por === "humano") return NextResponse.json({ ok: true });
 
     const hist = await historico(conversa.id);
@@ -44,7 +46,7 @@ export async function POST(req) {
         await avisarDono(`Novo pedido de agendamento\nCliente: ${nome || telefone}\nServiço: ${a.dados.servico}\nQuando: ${a.dados.data_hora}\nConfirme com o cliente.`);
       }
       if (a.tipo === "chamar_equipe") {
-        await db.from("conversas").update({ atendido_por: "humano", motivo_escalacao: a.dados.motivo }).eq("id", conversa.id);
+        await db.from("conversas").update({ motivo_escalacao: a.dados.motivo }).eq("id", conversa.id);
         await salvarMensagem(conversa.id, "sistema", "Conversa passada para a equipe: " + a.dados.motivo);
         await registrarEvento(empresa.id, "escalado", { telefone, motivo: a.dados.motivo });
         await avisarDono(`Cliente precisa de você\n${nome || telefone} (wa.me/${telefone})\nMotivo: ${a.dados.motivo}\nÚltima mensagem: "${texto}"`);
