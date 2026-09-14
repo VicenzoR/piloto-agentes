@@ -17,6 +17,10 @@ export default function Painel() {
   const [sel, setSel] = useState(null);
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState("");
+  const [aba, setAba] = useState("conversas");
+  const [contas, setContas] = useState(null);
+  const [colagem, setColagem] = useState("");
+  const [aviso, setAviso] = useState("");
 
   const carregar = async (s = senha) => {
     const r = await fetch("/api/conversas", { headers: { "x-senha": s } });
@@ -24,6 +28,38 @@ export default function Painel() {
     setDados(await r.json()); setOk(true); setErro("");
   };
   useEffect(() => { if (ok) { const t = setInterval(() => carregar(), 10000); return () => clearInterval(t); } }, [ok]);
+
+  const carregarContas = async () => {
+    const r = await fetch("/api/contas", { headers: { "x-senha": senha } });
+    if (r.ok) setContas(await r.json());
+  };
+  useEffect(() => { if (ok && aba === "contas") carregarContas(); }, [ok, aba]);
+
+  // Aceita linhas coladas da planilha: nome; telefone; valor; vencimento
+  const salvarContas = async () => {
+    const linhas = colagem.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+      const p = l.split(/[\t;]/).map((x) => x.trim());
+      return { cliente_nome: p[0], telefone: p[1], valor: p[2], vencimento: p[3] };
+    });
+    if (!linhas.length) return;
+    const r = await fetch("/api/contas", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ linhas }) });
+    const d = await r.json();
+    setAviso(`${d.inseridas} cadastrada(s).` + (d.erros?.length ? " Problemas: " + d.erros.join("; ") : ""));
+    setColagem(""); carregarContas();
+  };
+
+  const mudarConta = async (id, acao) => {
+    await fetch("/api/contas", { method: "PATCH", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ id, acao }) });
+    carregarContas();
+  };
+
+  const dispararCobranca = async () => {
+    if (!confirm("Enviar lembrete de cobrança para os vencidos? As mensagens são pré-aprovadas e vão em horário comercial.")) return;
+    const r = await fetch("/api/cobranca", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ dias_min: 3 }) });
+    const d = await r.json();
+    setAviso(d.erro ? "Não enviou: " + d.erro : `${d.enviadas} lembrete(s) enviado(s).`);
+    carregarContas();
+  };
 
   const enviar = async (body) => {
     await fetch("/api/enviar", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ conversa_id: sel, ...body }) });
@@ -48,6 +84,80 @@ export default function Painel() {
     <div style={S.wrap}>
       <h1 style={{ fontSize: 22 }}>{dados.empresa}</h1>
       <p style={{ color: "#666", fontSize: 14 }}>{dados.conversas.length} conversas · {escaladas} aguardando a equipe · {dados.agendamentos.length} pedidos de agendamento</p>
+
+      <div style={{ display: "flex", gap: 8, margin: "12px 0 16px" }}>
+        {[["conversas", "Atendimento"], ["contas", "Cobrança"]].map(([id, label]) => (
+          <button key={id} onClick={() => setAba(id)} style={{ ...S.btn2, background: aba === id ? "#0f7b6c" : "#fff", color: aba === id ? "#fff" : "#333", borderColor: aba === id ? "#0f7b6c" : "#bbb" }}>{label}</button>
+        ))}
+      </div>
+      {aviso && <div style={{ ...S.card, background: "#eef7f5", fontSize: 14 }}>{aviso}</div>}
+
+      {aba === "contas" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+            {[["Em aberto", contas ? `R$ ${contas.resumo.total_aberto.toLocaleString("pt-BR")}` : "-"],
+              ["Vencido", contas ? `R$ ${contas.resumo.total_vencido.toLocaleString("pt-BR")}` : "-"],
+              ["Clientes em atraso", contas ? contas.resumo.qtd_vencida : "-"],
+              ["Atraso médio", contas ? contas.resumo.media_atraso + " dias" : "-"]].map(([l, v]) => (
+              <div key={l} style={{ ...S.card, marginBottom: 0 }}>
+                <div style={{ fontSize: 12, color: "#666" }}>{l}</div>
+                <div style={{ fontSize: 20, fontWeight: 600, marginTop: 4 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={S.card}>
+            <h3 style={{ marginTop: 0, fontSize: 15 }}>Cadastrar contas a receber</h3>
+            <p style={{ fontSize: 13, color: "#666", marginTop: 0 }}>
+              Cole uma linha por cliente, separando com ponto e vírgula ou colando direto da planilha:<br />
+              <code>Nome; 5527999999999; 450,00; 05/09/2026</code>
+            </p>
+            <textarea value={colagem} onChange={(e) => setColagem(e.target.value)} rows={5}
+              placeholder={"Joao Silva; 5527999999999; 450,00; 05/09/2026\nMaria Souza; 5527988887777; 1200,00; 12/09/2026"}
+              style={{ ...S.input, fontFamily: "monospace", fontSize: 13 }} />
+            <button style={{ ...S.btn, marginTop: 10 }} onClick={salvarContas}>Cadastrar</button>
+          </div>
+
+          <div style={S.card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 15 }}>Contas</h3>
+              <button style={S.btn} onClick={dispararCobranca}>Cobrar vencidos</button>
+            </div>
+            {!contas || contas.contas.length === 0
+              ? <p style={{ fontSize: 13, color: "#666" }}>Nenhuma conta cadastrada ainda.</p>
+              : (
+                <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse", marginTop: 10 }}>
+                  <thead><tr style={{ textAlign: "left", color: "#666", fontSize: 12 }}>
+                    <th style={{ paddingBottom: 6 }}>Cliente</th><th>Telefone</th><th>Valor</th><th>Vence</th><th>Situação</th><th>Última cobrança</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    {contas.contas.map((c) => (
+                      <tr key={c.id} style={{ borderTop: "1px solid #eee" }}>
+                        <td style={{ padding: "6px 0" }}>{c.cliente_nome}</td>
+                        <td>{c.telefone}</td>
+                        <td>R$ {Number(c.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
+                        <td>{c.vencimento.split("-").reverse().join("/")}</td>
+                        <td>{c.status === "pago" ? <span style={{ color: "#0f7b6c" }}>pago</span>
+                          : c.dias_atraso > 0 ? <span style={{ color: "#b00020" }}>{c.dias_atraso} dias em atraso</span>
+                          : <span style={{ color: "#666" }}>a vencer</span>}</td>
+                        <td style={{ color: "#666", fontSize: 12 }}>{c.ultima_cobranca ? new Date(c.ultima_cobranca).toLocaleDateString("pt-BR") : "-"}</td>
+                        <td style={{ textAlign: "right" }}>
+                          <button style={{ ...S.btn2, padding: "4px 8px", fontSize: 12, marginRight: 6 }}
+                            onClick={() => mudarConta(c.id, c.status === "pago" ? "aberto" : "pago")}>
+                            {c.status === "pago" ? "Reabrir" : "Marcar pago"}
+                          </button>
+                          <button style={{ ...S.btn2, padding: "4px 8px", fontSize: 12 }} onClick={() => mudarConta(c.id, "apagar")}>Apagar</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+          </div>
+        </div>
+      )}
+
+      {aba === "conversas" && (
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16 }}>
         <div>
@@ -94,6 +204,7 @@ export default function Painel() {
           </>)}
         </div>
       </div>
+      )}
     </div>
   );
 }
