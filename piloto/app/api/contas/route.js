@@ -40,7 +40,12 @@ export async function POST(req) {
   for (const [i, l] of linhas.entries()) {
     const nome = String(l.cliente_nome || "").trim();
     const tel = String(l.telefone || "").replace(/\D/g, "");
-    const valor = Number(String(l.valor).replace(/\./g, "").replace(",", "."));
+    const bruto = String(l.valor ?? "").trim();
+    const valor = Number(
+      bruto.includes(",")
+        ? bruto.replace(/\./g, "").replace(",", ".")
+        : bruto.replace(/[^\d.]/g, "")
+    );
     const venc = String(l.vencimento || "").trim();
 
     if (!nome) { erros.push(`linha ${i + 1}: nome vazio`); continue; }
@@ -53,7 +58,9 @@ export async function POST(req) {
   }
 
   if (limpos.length) {
-    const { error } = await db.from("contas_receber").insert(limpos);
+    const { error } = await db
+      .from("contas_receber")
+      .upsert(limpos, { onConflict: "empresa_id,telefone,valor,vencimento", ignoreDuplicates: true });
     if (error) return NextResponse.json({ erro: error.message }, { status: 400 });
   }
   return NextResponse.json({ inseridas: limpos.length, erros });
