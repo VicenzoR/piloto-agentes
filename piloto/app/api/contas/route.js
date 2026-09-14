@@ -57,13 +57,33 @@ export async function POST(req) {
     limpos.push({ empresa_id: emp.id, cliente_nome: nome, telefone: tel, valor, vencimento: data });
   }
 
+  // Descarta o que já existe na base e o que veio repetido na mesma colagem.
+  // Chave: telefone + valor + vencimento dentro da mesma empresa.
+  const chave = (c) => `${c.telefone}|${Number(c.valor).toFixed(2)}|${c.vencimento}`;
+  let novos = limpos;
+  let ignoradas = 0;
+
   if (limpos.length) {
-    const { error } = await db
+    const { data: existentes } = await db
       .from("contas_receber")
-      .upsert(limpos, { onConflict: "empresa_id,telefone,valor,vencimento", ignoreDuplicates: true });
+      .select("telefone, valor, vencimento")
+      .eq("empresa_id", emp.id);
+    const vistos = new Set((existentes || []).map(chave));
+    novos = [];
+    for (const c of limpos) {
+      const k = chave(c);
+      if (vistos.has(k)) { ignoradas++; continue; }
+      vistos.add(k);
+      novos.push(c);
+    }
+  }
+
+  if (novos.length) {
+    const { error } = await db.from("contas_receber").insert(novos);
     if (error) return NextResponse.json({ erro: error.message }, { status: 400 });
   }
-  return NextResponse.json({ inseridas: limpos.length, erros });
+  if (ignoradas) erros.push(`${ignoradas} já estavam cadastradas e foram ignoradas`);
+  return NextResponse.json({ inseridas: novos.length, ignoradas, erros });
 }
 
 // Marca como paga, reabre ou apaga
