@@ -43,9 +43,13 @@ const TOOLS = [
 
 // Retorna { resposta, acoes: [{tipo, dados}] }
 export async function responder(historicoMsgs) {
-  const messages = historicoMsgs
-    .filter((m) => m.autor !== "sistema")
-    .map((m) => ({ role: m.autor === "cliente" ? "user" : "assistant", content: m.texto }));
+  // As notas de sistema entram como fala do assistente: é assim que o modelo sabe
+  // que um agendamento ou uma escalação JÁ foi executada e não deve ser refeita.
+  const messages = historicoMsgs.map((m) => {
+    if (m.autor === "cliente") return { role: "user", content: m.texto };
+    if (m.autor === "sistema") return { role: "assistant", content: `(nota interna do sistema: ${m.texto})` };
+    return { role: "assistant", content: m.texto };
+  });
   // A API exige começar com user e alternar; junta mensagens seguidas do mesmo papel.
   const compact = [];
   for (const m of messages) {
@@ -59,10 +63,14 @@ export async function responder(historicoMsgs) {
   let msgs = compact;
   for (let i = 0; i < 3; i++) {
     const r = await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 400, system: SYSTEM, tools: TOOLS, messages: msgs });
+    // Só o texto da última rodada vai para o cliente. O texto das rodadas
+    // intermediárias é preâmbulo ("vou registrar...") e, somado, sai grudado.
+    let textoRodada = "";
     for (const b of r.content) {
-      if (b.type === "text") resposta += b.text;
+      if (b.type === "text") textoRodada += b.text;
       if (b.type === "tool_use") acoes.push({ tipo: b.name, dados: b.input, id: b.id });
     }
+    if (textoRodada.trim()) resposta = textoRodada;
     if (r.stop_reason !== "tool_use") break;
     msgs = [...msgs, { role: "assistant", content: r.content },
       { role: "user", content: r.content.filter((b) => b.type === "tool_use").map((b) => ({ type: "tool_result", tool_use_id: b.id, content: "ok, registrado" })) }];
