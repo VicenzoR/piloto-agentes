@@ -21,6 +21,7 @@ export default function Painel() {
   const [contas, setContas] = useState(null);
   const [colagem, setColagem] = useState("");
   const [aviso, setAviso] = useState("");
+  const [resumo, setResumo] = useState("");
 
   const carregar = async (s = senha) => {
     const r = await fetch("/api/conversas", { headers: { "x-senha": s } });
@@ -61,6 +62,14 @@ export default function Painel() {
     carregarContas();
   };
 
+  const gerarResumo = async (enviarNoZap) => {
+    setResumo("Gerando...");
+    const r = await fetch("/api/gestor", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ enviar: enviarNoZap }) });
+    const d = await r.json();
+    setResumo(d.texto || d.erro || "Não consegui gerar.");
+    if (enviarNoZap) setAviso(d.enviado ? "Resumo enviado no WhatsApp do dono." : "Não enviou: " + (d.erro || "erro desconhecido"));
+  };
+
   const enviar = async (body) => {
     await fetch("/api/enviar", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ conversa_id: sel, ...body }) });
     setTexto(""); carregar();
@@ -86,7 +95,7 @@ export default function Painel() {
       <p style={{ color: "#666", fontSize: 14 }}>{dados.conversas.length} conversas · {escaladas} aguardando a equipe · {dados.agendamentos.length} pedidos de agendamento</p>
 
       <div style={{ display: "flex", gap: 8, margin: "12px 0 16px" }}>
-        {[["conversas", "Atendimento"], ["contas", "Cobrança"]].map(([id, label]) => (
+        {[["conversas", "Atendimento"], ["contas", "Cobrança"], ["gestor", "Gestor"]].map(([id, label]) => (
           <button key={id} onClick={() => setAba(id)} style={{ ...S.btn2, background: aba === id ? "#0f7b6c" : "#fff", color: aba === id ? "#fff" : "#333", borderColor: aba === id ? "#0f7b6c" : "#bbb" }}>{label}</button>
         ))}
       </div>
@@ -154,6 +163,22 @@ export default function Painel() {
                 </table>
               )}
           </div>
+        </div>
+      )}
+
+      {aba === "gestor" && (
+        <div style={S.card}>
+          <h3 style={{ marginTop: 0, fontSize: 15 }}>Resumo do dia</h3>
+          <p style={{ fontSize: 13, color: "#666", marginTop: 0 }}>
+            É o que o dono recebe todo dia às 7h no WhatsApp. Gere aqui para conferir antes de enviar.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btn2} onClick={() => gerarResumo(false)}>Gerar prévia</button>
+            <button style={S.btn} onClick={() => gerarResumo(true)}>Enviar no WhatsApp</button>
+          </div>
+          {resumo && (
+            <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 14, background: "#f7f8f9", border: "1px solid #e3e6ea", borderRadius: 6, padding: 12, marginTop: 12 }}>{resumo}</pre>
+          )}
         </div>
       )}
 
