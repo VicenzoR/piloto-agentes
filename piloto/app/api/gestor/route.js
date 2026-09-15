@@ -73,7 +73,7 @@ export async function montarResumo() {
   const recebidas = conta("mensagem_recebida");
   if (recebidas === 0) L.push("Nenhuma mensagem de cliente");
   else {
-    L.push(`${recebidas} mensagem${recebidas > 1 ? "ns" : ""} de cliente`);
+    L.push(`${recebidas} ${recebidas > 1 ? "mensagens" : "mensagem"} de cliente`);
     L.push(`${conta("resposta_ia")} respondida${conta("resposta_ia") > 1 ? "s" : ""} pelo agente`);
     if (conta("escalado")) L.push(`${conta("escalado")} passada${conta("escalado") > 1 ? "s" : ""} para a equipe`);
     if (conta("agendamento")) L.push(`${conta("agendamento")} pedido${conta("agendamento") > 1 ? "s" : ""} de agendamento`);
@@ -83,11 +83,12 @@ export async function montarResumo() {
   const pendencias = [];
   for (const c of escaladas || []) pendencias.push(`${c.clientes?.nome || c.clientes?.telefone || "Cliente"} aguarda a equipe${c.motivo_escalacao ? ` (${c.motivo_escalacao})` : ""}`);
   for (const a of agendamentos || []) pendencias.push(`Confirmar ${a.servico} de ${a.clientes?.nome || "cliente"} para ${a.data_hora}`);
+  const unicas = [...new Set(pendencias)];
 
   L.push("");
   L.push("*Precisa de você hoje*");
-  if (!pendencias.length) L.push("Nada travado.");
-  else for (const p of pendencias) L.push(p);
+  if (!unicas.length) L.push("Nada travado.");
+  else for (const p of unicas) L.push(p);
 
   const erros = conta("erro");
   if (erros) {
