@@ -26,6 +26,11 @@ export async function POST(req) {
     const nome = value?.contacts?.[0]?.profile?.name;
     const texto = msg.text.body;
 
+    // A Meta reenvia o mesmo evento quando demora a receber o 200.
+    // Sem esta trava, a mesma mensagem é processada de novo e as ações se repetem.
+    const { data: jaProcessada } = await db.from("mensagens").select("id").eq("wa_message_id", msg.id).maybeSingle();
+    if (jaProcessada) return NextResponse.json({ ok: true });
+
     const { cliente, conversa } = await obterConversa(empresa.id, telefone, nome);
     await salvarMensagem(conversa.id, "cliente", texto, msg.id);
     await registrarEvento(empresa.id, "mensagem_recebida", { telefone, texto });
@@ -40,16 +45,27 @@ export async function POST(req) {
 
     for (const a of acoes) {
       if (a.tipo === "registrar_agendamento") {
-        await db.from("agendamentos").insert({ empresa_id: empresa.id, cliente_id: cliente.id, servico: a.dados.servico, data_hora: a.dados.data_hora });
-        await db.from("conversas").update({ estagio: "Em atendimento" }).eq("id", conversa.id);
-        await registrarEvento(empresa.id, "agendamento", a.dados);
-        await avisarDono(`Novo pedido de agendamento\nCliente: ${nome || telefone}\nServiço: ${a.dados.servico}\nQuando: ${a.dados.data_hora}\nConfirme com o cliente.`);
+        // Não registra nem avisa duas vezes o mesmo pedido ainda pendente.
+        const { data: pendente } = await db.from("agendamentos").select("id")
+          .eq("cliente_id", cliente.id).eq("servico", a.dados.servico)
+          .eq("data_hora", a.dados.data_hora).eq("status", "solicitado").maybeSingle();
+        if (!pendente) {
+          await db.from("agendamentos").insert({ empresa_id: empresa.id, cliente_id: cliente.id, servico: a.dados.servico, data_hora: a.dados.data_hora });
+          await db.from("conversas").update({ estagio: "Em atendimento" }).eq("id", conversa.id);
+          await registrarEvento(empresa.id, "agendamento", a.dados);
+          // Fica no histórico para o agente saber que já registrou e não repetir na próxima mensagem.
+          await salvarMensagem(conversa.id, "sistema", `Agendamento já registrado: ${a.dados.servico} para ${a.dados.data_hora}. Não registrar de novo.`);
+          await avisarDono(`Novo pedido de agendamento\nCliente: ${nome || telefone}\nServiço: ${a.dados.servico}\nQuando: ${a.dados.data_hora}\nConfirme com o cliente.`);
+        }
       }
       if (a.tipo === "chamar_equipe") {
-        await db.from("conversas").update({ motivo_escalacao: a.dados.motivo }).eq("id", conversa.id);
-        await salvarMensagem(conversa.id, "sistema", "Conversa passada para a equipe: " + a.dados.motivo);
-        await registrarEvento(empresa.id, "escalado", { telefone, motivo: a.dados.motivo });
-        await avisarDono(`Cliente precisa de você\n${nome || telefone} (wa.me/${telefone})\nMotivo: ${a.dados.motivo}\nÚltima mensagem: "${texto}"`);
+        // Se o mesmo assunto já está com a equipe, não avisa de novo.
+        if (conversa.motivo_escalacao !== a.dados.motivo) {
+          await db.from("conversas").update({ motivo_escalacao: a.dados.motivo }).eq("id", conversa.id);
+          await salvarMensagem(conversa.id, "sistema", `Assunto já passado para a equipe: ${a.dados.motivo}. Não escalar de novo.`);
+          await registrarEvento(empresa.id, "escalado", { telefone, motivo: a.dados.motivo });
+          await avisarDono(`Cliente precisa de você\n${nome || telefone} (wa.me/${telefone})\nMotivo: ${a.dados.motivo}\nÚltima mensagem: "${texto}"`);
+        }
       }
     }
 
