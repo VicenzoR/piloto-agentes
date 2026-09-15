@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { db, empresaPiloto } from "@/lib/db";
+import { db, empresaPiloto, registrarEvento } from "@/lib/db";
 
 function auth(req) { return req.headers.get("x-senha") === process.env.PAINEL_SENHA; }
 
@@ -90,7 +90,13 @@ export async function POST(req) {
 export async function PATCH(req) {
   if (!auth(req)) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
   const { id, acao } = await req.json();
-  if (acao === "apagar") await db.from("contas_receber").delete().eq("id", id);
-  else await db.from("contas_receber").update({ status: acao === "pago" ? "pago" : "aberto" }).eq("id", id);
+  if (acao === "apagar") {
+    await db.from("contas_receber").delete().eq("id", id);
+    return NextResponse.json({ ok: true });
+  }
+  const { data: conta } = await db.from("contas_receber").select("*").eq("id", id).maybeSingle();
+  await db.from("contas_receber").update({ status: acao === "pago" ? "pago" : "aberto" }).eq("id", id);
+  // Registra o recebimento para o Agente Gestor conseguir dizer quanto entrou nas últimas 24h.
+  if (acao === "pago" && conta) await registrarEvento(conta.empresa_id, "conta_paga", { cliente: conta.cliente_nome, valor: conta.valor });
   return NextResponse.json({ ok: true });
 }
