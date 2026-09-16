@@ -4,6 +4,27 @@ import empresa from "../config/empresa.json";
 let _client;
 const client = { messages: { create: (...a) => (_client ||= new Anthropic()).messages.create(...a) } };
 
+const bloco = (titulo, linhas) => (linhas && linhas.length ? `\n\n${titulo}\n${linhas.join("\n")}` : "");
+
+const NEGOCIACAO = empresa.negociacao ? [
+  empresa.negociacao.regra,
+  `Parcelamento: ${empresa.negociacao.aceita_parcelamento ? `até ${empresa.negociacao.max_parcelas}x` : "não oferecemos"}.`,
+  `Desconto máximo sem autorização: ${empresa.negociacao.desconto_maximo_percent || 0}%.`,
+  "Ao combinar parcelamento dentro do limite, use registrar_negociacao. Fora do limite, use chamar_equipe.",
+].filter(Boolean) : [];
+
+const DOCUMENTOS = empresa.documentos ? [
+  `Tipos: ${empresa.documentos.tipos.join(", ")}.`,
+  `Prazo de emissão: ${empresa.documentos.prazo_emissao}.`,
+  `Entrega: ${empresa.documentos.onde}.`,
+  "Quando o cliente pedir ou cobrar um documento, use pedir_documento com o tipo e a competência (mês). Nunca afirme que o documento já foi emitido.",
+] : [];
+
+const CONTRATOS = empresa.contratos ? [
+  `Prazo padrão: ${empresa.contratos.prazo_padrao}.`,
+  "Dúvida sobre valor, reajuste, cancelamento ou renovação de contrato vai para a equipe.",
+] : [];
+
 const SYSTEM = `Você é o atendente virtual da ${empresa.nome} (${empresa.cidade}) no WhatsApp.
 
 REGRAS ABSOLUTAS
@@ -26,13 +47,26 @@ Endereço: ${empresa.endereco}
 Pagamento: ${empresa.pagamento}
 Políticas: ${empresa.politicas.join(" ")}
 Serviços:
-${empresa.servicos.map((s) => `- ${s.nome}: R$ ${s.preco} (${s.duracao})`).join("\n")}`;
+${empresa.servicos.map((s) => `- ${s.nome}: R$ ${s.preco} (${s.duracao})`).join("\n")}`
+  + bloco("NEGOCIAÇÃO", NEGOCIACAO)
+  + bloco("DOCUMENTOS", DOCUMENTOS)
+  + bloco("CONTRATO", CONTRATOS);
 
 const TOOLS = [
   {
     name: "registrar_agendamento",
     description: "Registra um pedido de agendamento para a equipe confirmar.",
     input_schema: { type: "object", properties: { servico: { type: "string" }, data_hora: { type: "string", description: "Dia e horário como o cliente disse" } }, required: ["servico", "data_hora"] },
+  },
+  {
+    name: "pedir_documento",
+    description: "Registra um pedido de documento regulatório (MTR, CDF, certificado, laudo) para a equipe providenciar.",
+    input_schema: { type: "object", properties: { tipo: { type: "string" }, competencia: { type: "string", description: "Mês ou referência que o cliente citou, ex: 09/2026" } }, required: ["tipo"] },
+  },
+  {
+    name: "registrar_negociacao",
+    description: "Registra um parcelamento combinado dentro do limite autorizado, para a equipe confirmar.",
+    input_schema: { type: "object", properties: { valor_total: { type: "string" }, parcelas: { type: "number" }, observacao: { type: "string" } }, required: ["valor_total", "parcelas"] },
   },
   {
     name: "chamar_equipe",
