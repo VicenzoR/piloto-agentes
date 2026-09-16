@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { db, empresaPiloto, registrarEvento } from "@/lib/db";
 import { enviarTexto } from "@/lib/whatsapp";
+import { consumoDoMes, teto } from "@/lib/limites";
 
 const DIA = 86400000;
 const brl = (v) => Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -43,6 +44,19 @@ export async function montarResumo() {
     .order("atualizado_em", { ascending: false })
     .limit(5);
 
+  const { data: contratos } = await db
+    .from("contratos")
+    .select("cliente_nome, servico, valor_mensal, renovacao")
+    .eq("empresa_id", emp.id).eq("status", "ativo")
+    .gte("renovacao", hoje).lte("renovacao", somaDias(hoje, 30))
+    .order("renovacao", { ascending: true }).limit(5);
+
+  const { data: docsPendentes } = await db
+    .from("documentos")
+    .select("cliente_nome, tipo, competencia")
+    .eq("empresa_id", emp.id).eq("status", "pendente")
+    .order("criado_em", { ascending: true }).limit(5);
+
   const { data: agendamentos } = await db
     .from("agendamentos")
     .select("servico, data_hora, clientes(nome)")
@@ -61,6 +75,12 @@ export async function montarResumo() {
   else L.push("Vencido: nada em atraso");
   if (recebido > 0) L.push(`Recebido nas últimas 24h: R$ ${brl(recebido)} (${pagas.length})`);
   if (aVencer.length) L.push(`Vence até ${ptBR(somaDias(hoje, 3))}: R$ ${brl(aVencer.reduce((s, c) => s + Number(c.valor), 0))} (${aVencer.length})`);
+
+  if ((contratos || []).length) {
+    L.push("");
+    L.push("*Contratos a renovar (30 dias)*");
+    for (const c of contratos) L.push(`${c.cliente_nome}: ${ptBR(c.renovacao)}${c.valor_mensal ? `, R$ ${brl(c.valor_mensal)}/mês` : ""}`);
+  }
 
   if (vencidas.length) {
     L.push("");
@@ -83,12 +103,20 @@ export async function montarResumo() {
   const pendencias = [];
   for (const c of escaladas || []) pendencias.push(`${c.clientes?.nome || c.clientes?.telefone || "Cliente"} aguarda a equipe${c.motivo_escalacao ? ` (${c.motivo_escalacao})` : ""}`);
   for (const a of agendamentos || []) pendencias.push(`Confirmar ${a.servico} de ${a.clientes?.nome || "cliente"} para ${a.data_hora}`);
+  for (const d of docsPendentes || []) pendencias.push(`Emitir ${d.tipo}${d.competencia ? " " + d.competencia : ""} para ${d.cliente_nome || "cliente"}`);
   const unicas = [...new Set(pendencias)];
 
   L.push("");
   L.push("*Precisa de você hoje*");
   if (!unicas.length) L.push("Nada travado.");
   else for (const p of unicas) L.push(p);
+
+  const usadas = await consumoDoMes(emp.id);
+  const limiteMes = teto();
+  if (usadas >= limiteMes * 0.8) {
+    L.push("");
+    L.push(`Mensagens do mês: ${usadas} de ${limiteMes}.`);
+  }
 
   const erros = conta("erro");
   if (erros) {
