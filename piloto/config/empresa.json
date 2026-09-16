@@ -1,25 +1,42 @@
 {
-  "nome": "Clínica Vitta Estética",
+  "_aviso": "PLACEHOLDER. Serviços, preços, endereço e políticas foram INVENTADOS para destravar o desenvolvimento. Trocar por dados reais antes de qualquer demonstração a cliente.",
+  "nome": "Eco+ Gestão de Resíduos",
   "cidade": "Vitória, ES",
-  "horario": "Segunda a sexta das 8h às 19h, sábado das 8h às 13h",
-  "endereco": "Rua Exemplo, 100, Jardim da Penha, Vitória",
-  "pagamento": "Pix, cartão de crédito em até 6x, dinheiro",
+  "horario": "Segunda a sexta das 8h às 18h",
+  "endereco": "PREENCHER com o endereço real da Eco+",
+  "pagamento": "Boleto mensal com vencimento no dia 10, Pix",
   "politicas": [
-    "Avaliação inicial é gratuita.",
-    "Remarcação com pelo menos 24h de antecedência.",
-    "Não damos desconto fora da tabela sem autorização da gerência."
+    "Contrato padrão de 12 meses com renovação automática.",
+    "Visitas seguem o calendário definido em contrato; remarcação com pelo menos 48h de antecedência.",
+    "Desconto ou mudança de valor só com autorização da diretoria.",
+    "Documentação regulatória é emitida após a coleta e enviada ao cliente."
   ],
   "servicos": [
-    { "nome": "Tratamento capilar (4 sessões)", "preco": 890, "duracao": "45 min por sessão" },
-    { "nome": "Aplicação de toxina botulínica (testa)", "preco": 1200, "duracao": "30 min" },
-    { "nome": "Limpeza de pele", "preco": 180, "duracao": "60 min" },
-    { "nome": "Drenagem linfática (sessão)", "preco": 150, "duracao": "50 min" },
-    { "nome": "Pacote facial completo", "preco": 2400, "duracao": "6 sessões" }
+    { "nome": "Coleta mensal de resíduos classe II (até 200L)", "preco": 450, "duracao": "1 visita por mês" },
+    { "nome": "Coleta quinzenal de resíduos classe II (até 200L)", "preco": 780, "duracao": "2 visitas por mês" },
+    { "nome": "Coleta de resíduos classe I (perigosos)", "preco": 1200, "duracao": "1 visita por mês, sob avaliação" },
+    { "nome": "Destinação final com emissão de CDF", "preco": 350, "duracao": "por lote destinado" },
+    { "nome": "Plano de Gerenciamento de Resíduos (PGRS)", "preco": 2800, "duracao": "elaboração, prazo de 30 dias" }
   ],
   "temas_proibidos": [
-    "prometer resultado de procedimento",
-    "dar desconto fora da tabela",
-    "informar prazo, garantia ou condição que não esteja neste arquivo",
-    "orientação médica ou sobre medicamentos"
-  ]
+    "dar desconto ou alterar valor de contrato",
+    "prometer prazo de coleta, de emissão de documento ou de destinação que não esteja neste arquivo",
+    "orientação jurídica ou ambiental que dependa de laudo técnico",
+    "confirmar que um documento foi emitido sem consultar a equipe"
+  ],
+  "negociacao": {
+    "aceita_parcelamento": true,
+    "max_parcelas": 3,
+    "desconto_maximo_percent": 0,
+    "regra": "Pode oferecer parcelamento do valor em aberto em até 3 vezes, sem desconto. Qualquer desconto, abatimento de juros ou prazo diferente vai para a diretoria decidir."
+  },
+  "documentos": {
+    "tipos": ["MTR", "CDF", "Certificado de destinação", "Laudo de caracterização"],
+    "prazo_emissao": "até 10 dias úteis após a coleta",
+    "onde": "enviados por e-mail para o responsável cadastrado"
+  },
+  "contratos": {
+    "prazo_padrao": "12 meses com renovação automática",
+    "aviso_renovacao_dias": 30
+  }
 }
