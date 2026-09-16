@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { empresaPiloto, obterConversa, salvarMensagem, historico, registrarEvento, db } from "@/lib/db";
 import { enviarTexto } from "@/lib/whatsapp";
 import { responder } from "@/lib/agente";
+import { podeEnviar } from "@/lib/limites";
 
 // Verificação do webhook (Meta chama uma vez ao configurar)
 export async function GET(req) {
@@ -40,6 +41,14 @@ export async function POST(req) {
     // segue respondendo o que está no catálogo, e só o assunto escalado fica com a equipe.
     if (conversa.atendido_por === "humano") return NextResponse.json({ ok: true });
 
+    // Teto de mensagens do mês: para de responder e avisa o dono uma vez.
+    const limite = await podeEnviar(empresa.id);
+    if (!limite.ok) {
+      await registrarEvento(empresa.id, "teto_atingido", { usadas: limite.usadas, limite: limite.limite });
+      if (limite.primeiraVez) await avisarDono(`Teto de mensagens do mês atingido (${limite.usadas}/${limite.limite}). O atendimento automático está pausado até a virada do mês ou até o limite ser ampliado.`);
+      return NextResponse.json({ ok: true });
+    }
+
     const hist = await historico(conversa.id);
     const { resposta, acoes } = await responder(hist);
 
@@ -57,6 +66,29 @@ export async function POST(req) {
           await salvarMensagem(conversa.id, "sistema", `Agendamento já registrado: ${a.dados.servico} para ${a.dados.data_hora}. Não registrar de novo.`);
           await avisarDono(`Novo pedido de agendamento\nCliente: ${nome || telefone}\nServiço: ${a.dados.servico}\nQuando: ${a.dados.data_hora}\nConfirme com o cliente.`);
         }
+      }
+      if (a.tipo === "pedir_documento") {
+        const comp = a.dados.competencia || "";
+        // Se o documento já existe na base, manda o link direto para o cliente.
+        const { data: doc } = await db.from("documentos").select("*")
+          .eq("empresa_id", empresa.id).eq("cliente_id", cliente.id)
+          .eq("tipo", a.dados.tipo).eq("competencia", comp)
+          .eq("status", "disponivel").maybeSingle();
+        if (doc?.link) {
+          await enviarTexto(telefone, `Seu ${doc.tipo}${comp ? " de " + comp : ""} está aqui: ${doc.link}`);
+          await db.from("documentos").update({ status: "entregue" }).eq("id", doc.id);
+          await registrarEvento(empresa.id, "documento_entregue", { tipo: doc.tipo, competencia: comp });
+        } else {
+          await db.from("documentos").insert({ empresa_id: empresa.id, cliente_id: cliente.id, cliente_nome: cliente.nome || telefone, tipo: a.dados.tipo, competencia: comp });
+          await registrarEvento(empresa.id, "documento_pedido", a.dados);
+          await salvarMensagem(conversa.id, "sistema", `Pedido de ${a.dados.tipo}${comp ? " " + comp : ""} já registrado para a equipe. Não registrar de novo.`);
+          await avisarDono(`Documento pedido\nCliente: ${nome || telefone}\nTipo: ${a.dados.tipo}${comp ? "\nCompetência: " + comp : ""}\nProvidencie e envie ao cliente.`);
+        }
+      }
+      if (a.tipo === "registrar_negociacao") {
+        await registrarEvento(empresa.id, "negociacao", { ...a.dados, telefone });
+        await salvarMensagem(conversa.id, "sistema", `Parcelamento proposto: ${a.dados.valor_total} em ${a.dados.parcelas}x. Aguardando a equipe confirmar.`);
+        await avisarDono(`Parcelamento combinado (falta confirmar)\nCliente: ${nome || telefone} (wa.me/${telefone})\nValor: ${a.dados.valor_total}\nParcelas: ${a.dados.parcelas}x${a.dados.observacao ? "\nObs: " + a.dados.observacao : ""}`);
       }
       if (a.tipo === "chamar_equipe") {
         // Se o mesmo assunto já está com a equipe, não avisa de novo.
