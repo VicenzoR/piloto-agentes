@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
+import crypto from "crypto";
 import { empresaPiloto, obterConversa, salvarMensagem, historico, registrarEvento, db } from "@/lib/db";
 import { enviarTexto } from "@/lib/whatsapp";
 import { responder } from "@/lib/agente";
@@ -14,12 +15,52 @@ export async function GET(req) {
   return new Response("forbidden", { status: 403 });
 }
 
+// Confere a assinatura que a Meta manda em cada webhook.
+// Sem isso, qualquer um que descubra a URL consegue injetar mensagem falsa e
+// fazer o sistema criar cobrança, agendamento ou responder por nós.
+// Precisa do corpo CRU: JSON.stringify do objeto já parseado não bate a assinatura.
+function assinaturaValida(cru, cabecalho) {
+  const segredo = process.env.META_APP_SECRET;
+  if (!segredo) return false;               // sem segredo configurado, recusa
+  if (!cabecalho?.startsWith("sha256=")) return false;
+  const esperado = "sha256=" + crypto.createHmac("sha256", segredo).update(cru, "utf8").digest("hex");
+  const a = Buffer.from(esperado), b = Buffer.from(cabecalho);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 // Mensagens recebidas
 export async function POST(req) {
-  const body = await req.json();
+  const cru = await req.text();
+  if (!assinaturaValida(cru, req.headers.get("x-hub-signature-256"))) {
+    console.error("webhook com assinatura invalida");
+    return new Response("forbidden", { status: 403 });
+  }
+  let body;
+  try { body = JSON.parse(cru); } catch { return NextResponse.json({ ok: true }); }
+
   const empresa = await empresaPiloto();
   try {
     const value = body?.entry?.[0]?.changes?.[0]?.value;
+
+    // Coexistência: o número continua no celular do cliente. Quando alguém da
+    // equipe responde por lá, a Meta manda uma cópia aqui como eco.
+    // Sem tratar isso, a IA responde por cima do funcionário.
+    const eco = value?.message_echoes?.[0];
+    if (eco) {
+      const paraQuem = eco.to || eco.recipient_id;
+      const textoEco = eco.text?.body || `[${eco.type}]`;
+      if (paraQuem) {
+        const { cliente, conversa } = await obterConversa(empresa.id, paraQuem, null);
+        const { data: jaTem } = await db.from("mensagens").select("id").eq("wa_message_id", eco.id).maybeSingle();
+        if (!jaTem) {
+          await salvarMensagem(conversa.id, "humano", textoEco, eco.id);
+          await db.from("conversas").update({ atendido_por: "humano" }).eq("id", conversa.id);
+          await registrarEvento(empresa.id, "humano_respondeu_no_celular", { telefone: paraQuem });
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     const msg = value?.messages?.[0];
     if (!msg || msg.type !== "text") return NextResponse.json({ ok: true }); // status de entrega, mídia etc.
 
