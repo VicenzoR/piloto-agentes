@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import catalogoPadrao from "../config/empresa.json";
 
 let _db;
 function getDb() {
@@ -8,9 +9,74 @@ function getDb() {
 // Cliente criado só na primeira chamada (evita erro no build sem variáveis de ambiente)
 export const db = { from: (t) => getDb().from(t) };
 
+const CAMPOS_EMPRESA = "id, nome, slug, phone_number_id, whatsapp_token, dono_whatsapp, senha_painel, teto_mensagens, catalogo, ativa";
+
+// ---------- empresas ----------
+// Cada empresa tem o próprio número de WhatsApp, o próprio catálogo e o próprio
+// dono. Nada disso pode vir de variável de ambiente ou de arquivo, senão duas
+// empresas compartilham a mesma configuração.
+
+export async function empresaPorPhoneId(phone_number_id) {
+  if (!phone_number_id) return null;
+  const { data } = await db.from("empresas").select(CAMPOS_EMPRESA).eq("phone_number_id", String(phone_number_id)).maybeSingle();
+  return data || null;
+}
+
+export async function empresaPorId(id) {
+  const { data } = await db.from("empresas").select(CAMPOS_EMPRESA).eq("id", id).maybeSingle();
+  return data || null;
+}
+
+export async function empresaPorSlug(slug) {
+  const { data } = await db.from("empresas").select(CAMPOS_EMPRESA).eq("slug", slug).maybeSingle();
+  return data || null;
+}
+
+export async function listarEmpresas() {
+  const { data } = await db.from("empresas").select(CAMPOS_EMPRESA).order("nome");
+  return (data || []).filter((e) => e.ativa !== false);
+}
+
+// Compatibilidade: código antigo chamava empresaPiloto() esperando "a" empresa.
+// Continua funcionando com uma empresa só; com várias, use as funções acima.
 export async function empresaPiloto() {
-  const { data } = await db.from("empresas").select("id, nome").limit(1).single();
-  return data;
+  const { data } = await db.from("empresas").select(CAMPOS_EMPRESA).order("criado_em").limit(1).maybeSingle();
+  return data || null;
+}
+
+// O catálogo fica no banco, por empresa. Enquanto a empresa não tiver o dela
+// preenchido, cai no arquivo antigo (que é placeholder e precisa ser trocado).
+export function catalogoDe(empresa) {
+  return (empresa && empresa.catalogo) || catalogoPadrao;
+}
+
+// Quem recebe alertas e resumo: o dono daquela empresa, não um número global.
+export function donoDe(empresa) {
+  return (empresa && empresa.dono_whatsapp) || process.env.DONO_WHATSAPP || null;
+}
+
+// ---------- autenticação do painel ----------
+// A senha do .env é a chave mestra (EJ Digital) e enxerga todas as empresas.
+// Cada empresa pode ter a própria senha e enxerga só a si mesma.
+export async function empresasDaSenha(senha) {
+  if (!senha) return [];
+  if (senha === process.env.PAINEL_SENHA) return await listarEmpresas();
+  const { data } = await db.from("empresas").select(CAMPOS_EMPRESA).eq("senha_painel", senha);
+  return (data || []).filter((e) => e.ativa !== false);
+}
+
+// Resolve a empresa de uma requisição do painel: confere a senha e, se veio um
+// empresa_id, garante que a senha realmente dá acesso àquela empresa.
+export async function empresaDaRequisicao(req, empresa_id) {
+  const senha = req.headers.get("x-senha");
+  const permitidas = await empresasDaSenha(senha);
+  if (!permitidas.length) return { erro: "não autorizado", status: 401 };
+  if (empresa_id) {
+    const escolhida = permitidas.find((e) => e.id === empresa_id);
+    if (!escolhida) return { erro: "empresa não encontrada", status: 404 };
+    return { empresa: escolhida, permitidas };
+  }
+  return { empresa: permitidas[0], permitidas };
 }
 
 export async function registrarEvento(empresa_id, tipo, detalhe) {
