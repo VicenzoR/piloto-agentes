@@ -22,19 +22,33 @@ export default function Painel() {
   const [colagem, setColagem] = useState("");
   const [aviso, setAviso] = useState("");
   const [resumo, setResumo] = useState("");
+  const [levs, setLevs] = useState(null);
+  const [empresaId, setEmpresaId] = useState("");   // empresa selecionada no topo
 
-  const carregar = async (s = senha) => {
-    const r = await fetch("/api/conversas", { headers: { "x-senha": s } });
+  const carregar = async (s = senha, emp = empresaId) => {
+    const q = emp ? `?empresa_id=${emp}` : "";
+    const r = await fetch("/api/conversas" + q, { headers: { "x-senha": s } });
     if (!r.ok) { setErro("Senha incorreta."); return; }
-    setDados(await r.json()); setOk(true); setErro("");
+    const d = await r.json();
+    setDados(d); setOk(true); setErro("");
+    if (!emp && d.empresa_id) setEmpresaId(d.empresa_id);
   };
-  useEffect(() => { if (ok) { const t = setInterval(() => carregar(), 10000); return () => clearInterval(t); } }, [ok]);
+  useEffect(() => { if (ok) { const t = setInterval(() => carregar(), 10000); return () => clearInterval(t); } }, [ok, empresaId]);
+  // Troca de empresa recarrega tudo: conversas, contas e resumo são por empresa.
+  useEffect(() => { if (ok && empresaId) { carregar(); setContas(null); setResumo(""); } }, [empresaId]);
 
   const carregarContas = async () => {
-    const r = await fetch("/api/contas", { headers: { "x-senha": senha } });
+    const r = await fetch("/api/contas?empresa_id=" + empresaId, { headers: { "x-senha": senha } });
     if (r.ok) setContas(await r.json());
   };
   useEffect(() => { if (ok && aba === "contas") carregarContas(); }, [ok, aba]);
+
+  // Respostas do formulário que o cliente preenche antes da implantação
+  const carregarLevantamentos = async () => {
+    const r = await fetch("/api/levantamento", { headers: { "x-senha": senha } });
+    if (r.ok) setLevs((await r.json()).levantamentos);
+  };
+  useEffect(() => { if (ok && aba === "levantamento") carregarLevantamentos(); }, [ok, aba]);
 
   // Aceita linhas coladas da planilha: nome; telefone; valor; vencimento
   const salvarContas = async () => {
@@ -43,20 +57,20 @@ export default function Painel() {
       return { cliente_nome: p[0], telefone: p[1], valor: p[2], vencimento: p[3] };
     });
     if (!linhas.length) return;
-    const r = await fetch("/api/contas", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ linhas }) });
+    const r = await fetch("/api/contas", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ linhas, empresa_id: empresaId }) });
     const d = await r.json();
     setAviso(`${d.inseridas} cadastrada(s).` + (d.erros?.length ? " Problemas: " + d.erros.join("; ") : ""));
     setColagem(""); carregarContas();
   };
 
   const mudarConta = async (id, acao) => {
-    await fetch("/api/contas", { method: "PATCH", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ id, acao }) });
+    await fetch("/api/contas", { method: "PATCH", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ id, acao, empresa_id: empresaId }) });
     carregarContas();
   };
 
   const dispararCobranca = async () => {
     if (!confirm("Enviar lembrete de cobrança para os vencidos? As mensagens são pré-aprovadas e vão em horário comercial.")) return;
-    const r = await fetch("/api/cobranca", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ dias_min: 3 }) });
+    const r = await fetch("/api/cobranca", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ dias_min: 3, empresa_id: empresaId }) });
     const d = await r.json();
     setAviso(d.erro ? "Não enviou: " + d.erro : `${d.enviadas} lembrete(s) enviado(s).`);
     carregarContas();
@@ -64,14 +78,14 @@ export default function Painel() {
 
   const gerarResumo = async (enviarNoZap) => {
     setResumo("Gerando...");
-    const r = await fetch("/api/gestor", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ enviar: enviarNoZap }) });
+    const r = await fetch("/api/gestor", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ enviar: enviarNoZap, empresa_id: empresaId }) });
     const d = await r.json();
     setResumo(d.texto || d.erro || "Não consegui gerar.");
     if (enviarNoZap) setAviso(d.enviado ? "Resumo enviado no WhatsApp do dono." : "Não enviou: " + (d.erro || "erro desconhecido"));
   };
 
   const enviar = async (body) => {
-    await fetch("/api/enviar", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ conversa_id: sel, ...body }) });
+    await fetch("/api/enviar", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ conversa_id: sel, empresa_id: empresaId, ...body }) });
     setTexto(""); carregar();
   };
 
@@ -91,15 +105,47 @@ export default function Painel() {
 
   return (
     <div style={S.wrap}>
-      <h1 style={{ fontSize: 22 }}>{dados.empresa}</h1>
+      {(dados.empresas || []).length > 1 ? (
+        <select value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}
+          style={{ ...S.input, width: "auto", fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
+          {dados.empresas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
+        </select>
+      ) : (
+        <h1 style={{ fontSize: 22 }}>{dados.empresa}</h1>
+      )}
       <p style={{ color: "#666", fontSize: 14 }}>{dados.conversas.length} conversas · {escaladas} aguardando a equipe · {dados.agendamentos.length} pedidos de agendamento</p>
 
       <div style={{ display: "flex", gap: 8, margin: "12px 0 16px" }}>
-        {[["conversas", "Atendimento"], ["contas", "Cobrança"], ["gestor", "Gestor"]].map(([id, label]) => (
+        {[["conversas", "Atendimento"], ["contas", "Cobrança"], ["gestor", "Gestor"], ["levantamento", "Levantamento"]].map(([id, label]) => (
           <button key={id} onClick={() => setAba(id)} style={{ ...S.btn2, background: aba === id ? "#0f7b6c" : "#fff", color: aba === id ? "#fff" : "#333", borderColor: aba === id ? "#0f7b6c" : "#bbb" }}>{label}</button>
         ))}
       </div>
       {aviso && <div style={{ ...S.card, background: "#eef7f5", fontSize: 14 }}>{aviso}</div>}
+
+      {aba === "levantamento" && (
+        <div>
+          <div style={{ ...S.card, fontSize: 14, color: "#555" }}>
+            Link para mandar ao cliente: <code>/levantamento/nome-da-empresa</code> (use letras minúsculas e hífen, sem espaço).
+            As respostas aparecem aqui assim que ele enviar.
+          </div>
+          {!levs && <div style={S.card}>Carregando...</div>}
+          {levs && !levs.length && <div style={S.card}>Nenhum formulário respondido ainda.</div>}
+          {(levs || []).map((l) => (
+            <div key={l.id} style={S.card}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <strong>{l.empresa_slug}</strong>
+                <span style={{ fontSize: 12, color: "#777" }}>{new Date(l.criado_em).toLocaleString("pt-BR")}</span>
+              </div>
+              {Object.entries(l.respostas || {}).map(([k, v]) => (
+                <div key={k} style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, color: "#777" }}>{k}</div>
+                  <div style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{Array.isArray(v) ? v.join(" · ") : String(v)}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       {aba === "contas" && (
         <div>
