@@ -5,8 +5,9 @@ import { db } from "@/lib/db";
 // Ajuste por empresa com a variável TETO_MENSAGENS_MES (padrão 1000).
 const TIPOS_QUE_CONTAM = ["resposta_ia", "cobranca_enviada", "aviso_enviado", "resumo_enviado"];
 
-export function teto() {
-  return Number(process.env.TETO_MENSAGENS_MES || 1000);
+// Teto por empresa (coluna teto_mensagens). O valor do .env vira só o padrão.
+export function teto(empresa) {
+  return Number(empresa?.teto_mensagens || process.env.TETO_MENSAGENS_MES || 1000);
 }
 
 // Quantas mensagens a empresa já gastou no mês corrente.
@@ -23,9 +24,10 @@ export async function consumoDoMes(empresa_id) {
 }
 
 // true quando ainda pode enviar. Registra o estouro uma única vez por mês.
-export async function podeEnviar(empresa_id) {
+export async function podeEnviar(empresa) {
+  const empresa_id = empresa?.id || empresa;   // aceita a empresa inteira ou só o id
   const usadas = await consumoDoMes(empresa_id);
-  const limite = teto();
+  const limite = teto(empresa?.id ? empresa : null);
   if (usadas < limite) return { ok: true, usadas, limite };
   const inicio = new Date();
   inicio.setUTCDate(1);
