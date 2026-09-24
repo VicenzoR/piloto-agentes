@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { db, empresaPiloto, registrarEvento } from "@/lib/db";
-
-function auth(req) { return req.headers.get("x-senha") === process.env.PAINEL_SENHA; }
+import { db, empresaDaRequisicao, registrarEvento } from "@/lib/db";
 
 // Lista as contas a receber, com resumo (serve de linha de base do piloto)
 export async function GET(req) {
-  if (!auth(req)) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
-  const emp = await empresaPiloto();
+  const { empresa: emp, erro, status } = await empresaDaRequisicao(req, new URL(req.url).searchParams.get("empresa_id"));
+  if (erro) return NextResponse.json({ erro }, { status });
   const { data } = await db.from("contas_receber").select("*").eq("empresa_id", emp.id).order("vencimento", { ascending: true });
   const hoje = new Date().toISOString().slice(0, 10);
   const contas = (data || []).map((c) => ({
@@ -30,9 +28,9 @@ export async function GET(req) {
 
 // Cadastra uma conta ou várias de uma vez (colando de planilha)
 export async function POST(req) {
-  if (!auth(req)) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
-  const emp = await empresaPiloto();
   const body = await req.json();
+  const { empresa: emp, erro, status } = await empresaDaRequisicao(req, body.empresa_id);
+  if (erro) return NextResponse.json({ erro }, { status });
   const linhas = body.linhas || [body];
 
   const limpos = [];
@@ -88,13 +86,17 @@ export async function POST(req) {
 
 // Marca como paga, reabre ou apaga
 export async function PATCH(req) {
-  if (!auth(req)) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
-  const { id, acao } = await req.json();
+  const { id, acao, empresa_id } = await req.json();
+  const { empresa: emp, erro, status } = await empresaDaRequisicao(req, empresa_id);
+  if (erro) return NextResponse.json({ erro }, { status });
+  // A conta precisa ser da empresa a que a senha dá acesso: sem isso, uma senha
+  // de cliente conseguiria mexer na conta de outro.
+  const { data: conta } = await db.from("contas_receber").select("*").eq("id", id).eq("empresa_id", emp.id).maybeSingle();
+  if (!conta) return NextResponse.json({ erro: "conta não encontrada" }, { status: 404 });
   if (acao === "apagar") {
     await db.from("contas_receber").delete().eq("id", id);
     return NextResponse.json({ ok: true });
   }
-  const { data: conta } = await db.from("contas_receber").select("*").eq("id", id).maybeSingle();
   await db.from("contas_receber").update({ status: acao === "pago" ? "pago" : "aberto" }).eq("id", id);
   // Registra o recebimento para o Agente Gestor conseguir dizer quanto entrou nas últimas 24h.
   if (acao === "pago" && conta) await registrarEvento(conta.empresa_id, "conta_paga", { cliente: conta.cliente_nome, valor: conta.valor });
