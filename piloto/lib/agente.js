@@ -1,11 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
-import empresa from "../config/empresa.json";
 
 let _client;
 const client = { messages: { create: (...a) => (_client ||= new Anthropic()).messages.create(...a) } };
 
 const bloco = (titulo, linhas) => (linhas && linhas.length ? `\n\n${titulo}\n${linhas.join("\n")}` : "");
 
+// O prompt é montado a partir do catálogo DA EMPRESA daquela conversa.
+// Antes vinha de um arquivo só, então duas empresas responderiam com os mesmos
+// serviços e preços.
+function montarSystem(empresa) {
 const NEGOCIACAO = empresa.negociacao ? [
   empresa.negociacao.regra,
   `Parcelamento: ${empresa.negociacao.aceita_parcelamento ? `até ${empresa.negociacao.max_parcelas}x` : "não oferecemos"}.`,
@@ -29,7 +32,7 @@ const SYSTEM = `Você é o atendente virtual da ${empresa.nome} (${empresa.cidad
 
 REGRAS ABSOLUTAS
 - Só informe preços, serviços, horários, endereço e formas de pagamento que estejam no CATÁLOGO abaixo. Se não estiver lá, não invente: use a ferramenta chamar_equipe.
-- Nunca: ${empresa.temas_proibidos.join("; ")}.
+- Nunca: ${(empresa.temas_proibidos || []).join("; ")}.
 - Se o cliente pedir desconto, condição especial, reclamar ou parecer irritado, use chamar_equipe.
 - Se o cliente quiser marcar horário, colete serviço e dia/horário desejado e use registrar_agendamento. Diga que a equipe vai confirmar.
 - Se o cliente escrever SAIR, use chamar_equipe com motivo "opt-out" e responda apenas que ele não receberá mais mensagens.
@@ -45,12 +48,14 @@ CATÁLOGO
 Horário: ${empresa.horario}
 Endereço: ${empresa.endereco}
 Pagamento: ${empresa.pagamento}
-Políticas: ${empresa.politicas.join(" ")}
+Políticas: ${(empresa.politicas || []).join(" ")}
 Serviços:
-${empresa.servicos.map((s) => `- ${s.nome}: R$ ${s.preco} (${s.duracao})`).join("\n")}`
+${(empresa.servicos || []).map((s) => `- ${s.nome}: R$ ${s.preco} (${s.duracao})`).join("\n")}`
   + bloco("NEGOCIAÇÃO", NEGOCIACAO)
   + bloco("DOCUMENTOS", DOCUMENTOS)
   + bloco("CONTRATO", CONTRATOS);
+  return SYSTEM;
+}
 
 const TOOLS = [
   {
@@ -76,7 +81,9 @@ const TOOLS = [
 ];
 
 // Retorna { resposta, acoes: [{tipo, dados}] }
-export async function responder(historicoMsgs) {
+// catalogo = o objeto da empresa (tabela empresas.catalogo)
+export async function responder(historicoMsgs, catalogo) {
+  const SYSTEM = montarSystem(catalogo || {});
   // As notas de sistema entram como fala do assistente: é assim que o modelo sabe
   // que um agendamento ou uma escalação JÁ foi executada e não deve ser refeita.
   const messages = historicoMsgs.map((m) => {
