@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import crypto from "crypto";
-import { empresaPiloto, obterConversa, salvarMensagem, historico, registrarEvento, db } from "@/lib/db";
+import { empresaPorPhoneId, obterConversa, salvarMensagem, historico, registrarEvento, catalogoDe, donoDe, db } from "@/lib/db";
 import { enviarTexto } from "@/lib/whatsapp";
 import { responder } from "@/lib/agente";
 import { podeEnviar } from "@/lib/limites";
@@ -38,7 +38,14 @@ export async function POST(req) {
   let body;
   try { body = JSON.parse(cru); } catch { return NextResponse.json({ ok: true }); }
 
-  const empresa = await empresaPiloto();
+  // De qual empresa é esta mensagem: o número que a recebeu decide.
+  // Sem isso, tudo caía na primeira empresa do banco.
+  const phoneId = body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+  const empresa = await empresaPorPhoneId(phoneId);
+  if (!empresa) {
+    console.error("mensagem para phone_number_id sem empresa cadastrada:", phoneId);
+    return NextResponse.json({ ok: true });
+  }
   try {
     const value = body?.entry?.[0]?.changes?.[0]?.value;
 
@@ -83,15 +90,15 @@ export async function POST(req) {
     if (conversa.atendido_por === "humano") return NextResponse.json({ ok: true });
 
     // Teto de mensagens do mês: para de responder e avisa o dono uma vez.
-    const limite = await podeEnviar(empresa.id);
+    const limite = await podeEnviar(empresa);
     if (!limite.ok) {
       await registrarEvento(empresa.id, "teto_atingido", { usadas: limite.usadas, limite: limite.limite });
-      if (limite.primeiraVez) await avisarDono(`Teto de mensagens do mês atingido (${limite.usadas}/${limite.limite}). O atendimento automático está pausado até a virada do mês ou até o limite ser ampliado.`);
+      if (limite.primeiraVez) await avisarDono(empresa, `Teto de mensagens do mês atingido (${limite.usadas}/${limite.limite}). O atendimento automático está pausado até a virada do mês ou até o limite ser ampliado.`);
       return NextResponse.json({ ok: true });
     }
 
     const hist = await historico(conversa.id);
-    const { resposta, acoes } = await responder(hist);
+    const { resposta, acoes } = await responder(hist, catalogoDe(empresa));
 
     for (const a of acoes) {
       if (a.tipo === "registrar_agendamento") {
@@ -105,7 +112,7 @@ export async function POST(req) {
           await registrarEvento(empresa.id, "agendamento", a.dados);
           // Fica no histórico para o agente saber que já registrou e não repetir na próxima mensagem.
           await salvarMensagem(conversa.id, "sistema", `Agendamento já registrado: ${a.dados.servico} para ${a.dados.data_hora}. Não registrar de novo.`);
-          await avisarDono(`Novo pedido de agendamento\nCliente: ${nome || telefone}\nServiço: ${a.dados.servico}\nQuando: ${a.dados.data_hora}\nConfirme com o cliente.`);
+          await avisarDono(empresa, `Novo pedido de agendamento\nCliente: ${nome || telefone}\nServiço: ${a.dados.servico}\nQuando: ${a.dados.data_hora}\nConfirme com o cliente.`);
         }
       }
       if (a.tipo === "pedir_documento") {
@@ -116,20 +123,20 @@ export async function POST(req) {
           .eq("tipo", a.dados.tipo).eq("competencia", comp)
           .eq("status", "disponivel").maybeSingle();
         if (doc?.link) {
-          await enviarTexto(telefone, `Seu ${doc.tipo}${comp ? " de " + comp : ""} está aqui: ${doc.link}`);
+          await enviarTexto(empresa, telefone, `Seu ${doc.tipo}${comp ? " de " + comp : ""} está aqui: ${doc.link}`);
           await db.from("documentos").update({ status: "entregue" }).eq("id", doc.id);
           await registrarEvento(empresa.id, "documento_entregue", { tipo: doc.tipo, competencia: comp });
         } else {
           await db.from("documentos").insert({ empresa_id: empresa.id, cliente_id: cliente.id, cliente_nome: cliente.nome || telefone, tipo: a.dados.tipo, competencia: comp });
           await registrarEvento(empresa.id, "documento_pedido", a.dados);
           await salvarMensagem(conversa.id, "sistema", `Pedido de ${a.dados.tipo}${comp ? " " + comp : ""} já registrado para a equipe. Não registrar de novo.`);
-          await avisarDono(`Documento pedido\nCliente: ${nome || telefone}\nTipo: ${a.dados.tipo}${comp ? "\nCompetência: " + comp : ""}\nProvidencie e envie ao cliente.`);
+          await avisarDono(empresa, `Documento pedido\nCliente: ${nome || telefone}\nTipo: ${a.dados.tipo}${comp ? "\nCompetência: " + comp : ""}\nProvidencie e envie ao cliente.`);
         }
       }
       if (a.tipo === "registrar_negociacao") {
         await registrarEvento(empresa.id, "negociacao", { ...a.dados, telefone });
         await salvarMensagem(conversa.id, "sistema", `Parcelamento proposto: ${a.dados.valor_total} em ${a.dados.parcelas}x. Aguardando a equipe confirmar.`);
-        await avisarDono(`Parcelamento combinado (falta confirmar)\nCliente: ${nome || telefone} (wa.me/${telefone})\nValor: ${a.dados.valor_total}\nParcelas: ${a.dados.parcelas}x${a.dados.observacao ? "\nObs: " + a.dados.observacao : ""}`);
+        await avisarDono(empresa, `Parcelamento combinado (falta confirmar)\nCliente: ${nome || telefone} (wa.me/${telefone})\nValor: ${a.dados.valor_total}\nParcelas: ${a.dados.parcelas}x${a.dados.observacao ? "\nObs: " + a.dados.observacao : ""}`);
       }
       if (a.tipo === "chamar_equipe") {
         // Se o mesmo assunto já está com a equipe, não avisa de novo.
@@ -137,25 +144,27 @@ export async function POST(req) {
           await db.from("conversas").update({ motivo_escalacao: a.dados.motivo }).eq("id", conversa.id);
           await salvarMensagem(conversa.id, "sistema", `Assunto já passado para a equipe: ${a.dados.motivo}. Não escalar de novo.`);
           await registrarEvento(empresa.id, "escalado", { telefone, motivo: a.dados.motivo });
-          await avisarDono(`Cliente precisa de você\n${nome || telefone} (wa.me/${telefone})\nMotivo: ${a.dados.motivo}\nÚltima mensagem: "${texto}"`);
+          await avisarDono(empresa, `Cliente precisa de você\n${nome || telefone} (wa.me/${telefone})\nMotivo: ${a.dados.motivo}\nÚltima mensagem: "${texto}"`);
         }
       }
     }
 
     if (resposta) {
-      const waId = await enviarTexto(telefone, resposta);
+      const waId = await enviarTexto(empresa, telefone, resposta);
       await salvarMensagem(conversa.id, "ia", resposta, waId);
       await registrarEvento(empresa.id, "resposta_ia", { telefone, resposta });
     }
   } catch (e) {
     console.error(e);
     await registrarEvento(empresa?.id, "erro", { erro: String(e) });
-    await avisarDono("O atendimento automático falhou em uma mensagem. Verifique o WhatsApp da empresa.").catch(() => {});
+    await avisarDono(empresa, "O atendimento automático falhou em uma mensagem. Verifique o WhatsApp da empresa.").catch(() => {});
   }
   return NextResponse.json({ ok: true }); // sempre 200, senão a Meta reenvia
 }
 
-async function avisarDono(texto) {
-  if (!process.env.DONO_WHATSAPP) return;
-  await enviarTexto(process.env.DONO_WHATSAPP, texto);
+// Alerta vai para o dono DAQUELA empresa (coluna dono_whatsapp).
+async function avisarDono(empresa, texto) {
+  const dono = donoDe(empresa);
+  if (!dono) return;
+  await enviarTexto(empresa, dono, texto);
 }
