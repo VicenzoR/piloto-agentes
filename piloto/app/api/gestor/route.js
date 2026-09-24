@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { db, empresaPiloto, registrarEvento } from "@/lib/db";
+import { db, empresaDaRequisicao, listarEmpresas, empresaPorId, registrarEvento, donoDe } from "@/lib/db";
 import { enviarTexto } from "@/lib/whatsapp";
 import { consumoDoMes, teto } from "@/lib/limites";
 
@@ -12,8 +12,7 @@ const ptBR = (iso) => iso.split("-").reverse().join("/");
 
 // Monta o resumo do dia a partir do que já está no banco.
 // Todos os números são calculados aqui, nada é gerado por IA: resumo de dinheiro não pode ter número inventado.
-export async function montarResumo() {
-  const emp = await empresaPiloto();
+export async function montarResumo(emp) {
   const hoje = hojeBR();
   const desde = new Date(Date.now() - DIA).toISOString();
 
@@ -112,7 +111,7 @@ export async function montarResumo() {
   else for (const p of unicas) L.push(p);
 
   const usadas = await consumoDoMes(emp.id);
-  const limiteMes = teto();
+  const limiteMes = teto(emp);
   if (usadas >= limiteMes * 0.8) {
     L.push("");
     L.push(`Mensagens do mês: ${usadas} de ${limiteMes}.`);
@@ -127,12 +126,13 @@ export async function montarResumo() {
   return { texto: L.join("\n"), empresa_id: emp.id };
 }
 
-async function gerarEEnviar(enviar) {
-  const { texto, empresa_id } = await montarResumo();
+async function gerarEEnviar(emp, enviar) {
+  const { texto, empresa_id } = await montarResumo(emp);
   if (!enviar) return { texto, enviado: false };
-  if (!process.env.DONO_WHATSAPP) return { texto, enviado: false, erro: "DONO_WHATSAPP não configurado" };
+  const dono = donoDe(emp);
+  if (!dono) return { texto, enviado: false, erro: "empresa sem dono_whatsapp configurado" };
   try {
-    await enviarTexto(process.env.DONO_WHATSAPP, texto);
+    await enviarTexto(emp, dono, texto);
     await registrarEvento(empresa_id, "resumo_enviado", { tamanho: texto.length });
     return { texto, enviado: true };
   } catch (e) {
@@ -142,17 +142,31 @@ async function gerarEEnviar(enviar) {
   }
 }
 
-// GET: chamado pelo cron da Vercel (Authorization: Bearer CRON_SECRET) ou manualmente com x-senha.
+// GET: chamado pelo cron da Vercel (Authorization: Bearer CRON_SECRET).
+// Agora percorre TODAS as empresas ativas: cada dono recebe o resumo da sua.
 export async function GET(req) {
   const bearer = req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
   const painel = req.headers.get("x-senha") === process.env.PAINEL_SENHA;
   if (!bearer && !painel) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
-  return NextResponse.json(await gerarEEnviar(true));
+
+  const resultados = [];
+  for (const emp of await listarEmpresas()) {
+    try {
+      const r = await gerarEEnviar(emp, true);
+      resultados.push({ empresa: emp.nome, enviado: r.enviado, erro: r.erro });
+    } catch (e) {
+      // Uma empresa com problema não pode impedir o resumo das outras.
+      await registrarEvento(emp.id, "erro", { gestor: String(e) });
+      resultados.push({ empresa: emp.nome, enviado: false, erro: String(e) });
+    }
+  }
+  return NextResponse.json({ empresas: resultados.length, resultados });
 }
 
 // POST: painel. { enviar: false } só devolve a prévia do texto, sem mandar no WhatsApp.
 export async function POST(req) {
-  if (req.headers.get("x-senha") !== process.env.PAINEL_SENHA) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
-  return NextResponse.json(await gerarEEnviar(body.enviar === true));
+  const { empresa, erro, status } = await empresaDaRequisicao(req, body.empresa_id);
+  if (erro) return NextResponse.json({ erro }, { status });
+  return NextResponse.json(await gerarEEnviar(empresa, body.enviar === true));
 }
