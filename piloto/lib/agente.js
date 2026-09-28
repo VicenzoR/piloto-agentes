@@ -28,7 +28,16 @@ const CONTRATOS = empresa.contratos ? [
   "Dúvida sobre valor, reajuste, cancelamento ou renovação de contrato vai para a equipe.",
 ] : [];
 
+// O modelo não tem noção de data e chutava o ano ao registrar a competência de
+// um documento (dizia 09/2025 em setembro de 2026). Passar a data de hoje
+// resolve na origem.
+const hojeTexto = new Date(Date.now() - 3 * 3600000).toLocaleDateString("pt-BR", {
+  day: "2-digit", month: "long", year: "numeric",
+});
+
 const SYSTEM = `Você é o atendente virtual da ${empresa.nome} (${empresa.cidade}) no WhatsApp.
+
+Hoje é ${hojeTexto}. Use esta data sempre que precisar de mês ou ano; nunca chute.
 
 REGRAS ABSOLUTAS
 - Só informe preços, serviços, horários, endereço e formas de pagamento que estejam no CATÁLOGO abaixo. Se não estiver lá, não invente: use a ferramenta chamar_equipe.

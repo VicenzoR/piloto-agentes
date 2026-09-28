@@ -116,7 +116,7 @@ export async function POST(req) {
         }
       }
       if (a.tipo === "pedir_documento") {
-        const comp = a.dados.competencia || "";
+        const comp = normalizarCompetencia(a.dados.competencia);
         // Se o documento já existe na base, manda o link direto para o cliente.
         const { data: doc } = await db.from("documentos").select("*")
           .eq("empresa_id", empresa.id).eq("cliente_id", cliente.id)
@@ -160,6 +160,37 @@ export async function POST(req) {
     await avisarDono(empresa, "O atendimento automático falhou em uma mensagem. Verifique o WhatsApp da empresa.").catch(() => {});
   }
   return NextResponse.json({ ok: true }); // sempre 200, senão a Meta reenvia
+}
+
+// Competência de documento (MTR, CDF) no formato MM/AAAA.
+// Aceita "setembro", "09", "9/26", "09/2026". Quando o cliente não disse o ano,
+// assume o ano corrente; se o mês ainda não chegou, é do ano passado, porque
+// ninguém pede documento de competência futura.
+export function normalizarCompetencia(valor) {
+  const bruto = String(valor || "").trim();
+  if (!bruto) return "";
+  const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const agora = new Date(Date.now() - 3 * 3600000);   // Brasília
+  const anoAtual = agora.getFullYear();
+  const mesAtual = agora.getMonth() + 1;
+
+  let mes = null, ano = null;
+  const comBarra = bruto.match(/(\d{1,2})\s*[\/\-.]\s*(\d{2,4})/);
+  if (comBarra) {
+    mes = Number(comBarra[1]);
+    ano = Number(comBarra[2].length === 2 ? "20" + comBarra[2] : comBarra[2]);
+  } else {
+    const semAcento = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const achado = MESES.findIndex((m) => semAcento(bruto).includes(semAcento(m)));
+    if (achado >= 0) mes = achado + 1;
+    else if (/^\d{1,2}$/.test(bruto)) mes = Number(bruto);
+    const anoSolto = bruto.match(/(20\d{2})/);
+    if (anoSolto) ano = Number(anoSolto[1]);
+  }
+  if (!mes || mes < 1 || mes > 12) return bruto;      // não entendi: grava como veio
+  if (!ano) ano = mes > mesAtual ? anoAtual - 1 : anoAtual;
+  return String(mes).padStart(2, "0") + "/" + ano;
 }
 
 // Alerta vai para o dono DAQUELA empresa (coluna dono_whatsapp).
