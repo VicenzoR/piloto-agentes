@@ -7,6 +7,17 @@ create table if not exists empresas (
   criado_em timestamptz default now()
 );
 
+-- Configuração por empresa (multiempresa). Em "alter" para também atualizar
+-- bancos criados com a versão antiga deste arquivo.
+alter table empresas add column if not exists slug text;
+alter table empresas add column if not exists phone_number_id text;   -- número do WhatsApp que recebe as mensagens
+alter table empresas add column if not exists whatsapp_token text;
+alter table empresas add column if not exists dono_whatsapp text;     -- quem recebe alertas e o resumo do dia
+alter table empresas add column if not exists senha_painel text;      -- senha do painel que enxerga só esta empresa
+alter table empresas add column if not exists teto_mensagens integer; -- vazio = TETO_MENSAGENS_MES
+alter table empresas add column if not exists catalogo jsonb;         -- vazio = config/empresa.json
+alter table empresas add column if not exists ativa boolean default true;
+
 create table if not exists clientes (
   id uuid primary key default gen_random_uuid(),
   empresa_id uuid references empresas(id) not null,
@@ -55,6 +66,31 @@ create table if not exists contas_receber (
   vencimento date not null,
   status text default 'aberto',                -- aberto | pago
   ultima_cobranca timestamptz
+);
+
+alter table contas_receber add column if not exists ultimo_aviso timestamptz;  -- aviso antes do vencimento
+
+create table if not exists contratos (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid references empresas(id) not null,
+  cliente_nome text not null,
+  servico text,
+  valor_mensal numeric,
+  renovacao date,
+  status text default 'ativo',                  -- ativo | encerrado
+  criado_em timestamptz default now()
+);
+
+create table if not exists documentos (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid references empresas(id) not null,
+  cliente_id uuid references clientes(id),
+  cliente_nome text,
+  tipo text not null,                           -- MTR | CDF | Certificado de destinação | Laudo de caracterização
+  competencia text,                             -- MM/AAAA
+  status text default 'pendente',               -- pendente | disponivel | entregue
+  link text,
+  criado_em timestamptz default now()
 );
 
 create table if not exists eventos (

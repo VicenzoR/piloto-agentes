@@ -22,7 +22,6 @@ export default function Painel() {
   const [colagem, setColagem] = useState("");
   const [aviso, setAviso] = useState("");
   const [resumo, setResumo] = useState("");
-  const [levs, setLevs] = useState(null);
   const [empresaId, setEmpresaId] = useState("");   // empresa selecionada no topo
 
   const carregar = async (s = senha, emp = empresaId) => {
@@ -42,13 +41,6 @@ export default function Painel() {
     if (r.ok) setContas(await r.json());
   };
   useEffect(() => { if (ok && aba === "contas") carregarContas(); }, [ok, aba]);
-
-  // Respostas do formulário que o cliente preenche antes da implantação
-  const carregarLevantamentos = async () => {
-    const r = await fetch("/api/levantamento", { headers: { "x-senha": senha } });
-    if (r.ok) setLevs((await r.json()).levantamentos);
-  };
-  useEffect(() => { if (ok && aba === "levantamento") carregarLevantamentos(); }, [ok, aba]);
 
   // Aceita linhas coladas da planilha: nome; telefone; valor; vencimento
   const salvarContas = async () => {
@@ -116,36 +108,11 @@ export default function Painel() {
       <p style={{ color: "#666", fontSize: 14 }}>{dados.conversas.length} conversas · {escaladas} aguardando a equipe · {dados.agendamentos.length} pedidos de agendamento</p>
 
       <div style={{ display: "flex", gap: 8, margin: "12px 0 16px" }}>
-        {[["conversas", "Atendimento"], ["contas", "Cobrança"], ["gestor", "Gestor"], ["levantamento", "Levantamento"]].map(([id, label]) => (
+        {[["conversas", "Atendimento"], ["contas", "Cobrança"], ["gestor", "Gestor"]].map(([id, label]) => (
           <button key={id} onClick={() => setAba(id)} style={{ ...S.btn2, background: aba === id ? "#0f7b6c" : "#fff", color: aba === id ? "#fff" : "#333", borderColor: aba === id ? "#0f7b6c" : "#bbb" }}>{label}</button>
         ))}
       </div>
       {aviso && <div style={{ ...S.card, background: "#eef7f5", fontSize: 14 }}>{aviso}</div>}
-
-      {aba === "levantamento" && (
-        <div>
-          <div style={{ ...S.card, fontSize: 14, color: "#555" }}>
-            Link para mandar ao cliente: <code>/levantamento/nome-da-empresa</code> (use letras minúsculas e hífen, sem espaço).
-            As respostas aparecem aqui assim que ele enviar.
-          </div>
-          {!levs && <div style={S.card}>Carregando...</div>}
-          {levs && !levs.length && <div style={S.card}>Nenhum formulário respondido ainda.</div>}
-          {(levs || []).map((l) => (
-            <div key={l.id} style={S.card}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                <strong>{l.empresa_slug}</strong>
-                <span style={{ fontSize: 12, color: "#777" }}>{new Date(l.criado_em).toLocaleString("pt-BR")}</span>
-              </div>
-              {Object.entries(l.respostas || {}).map(([k, v]) => (
-                <div key={k} style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, color: "#777" }}>{k}</div>
-                  <div style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{Array.isArray(v) ? v.join(" · ") : String(v)}</div>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
 
       {aba === "contas" && (
         <div>
