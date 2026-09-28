@@ -17,6 +17,8 @@ alter table empresas add column if not exists senha_painel text;      -- senha d
 alter table empresas add column if not exists teto_mensagens integer; -- vazio = TETO_MENSAGENS_MES
 alter table empresas add column if not exists catalogo jsonb;         -- vazio = config/empresa.json
 alter table empresas add column if not exists ativa boolean default true;
+create unique index if not exists empresas_phone on empresas (phone_number_id) where phone_number_id is not null;
+create unique index if not exists empresas_slug on empresas (slug) where slug is not null;
 
 create table if not exists clientes (
   id uuid primary key default gen_random_uuid(),

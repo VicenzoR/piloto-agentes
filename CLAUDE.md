@@ -48,6 +48,4 @@ Environment variables used: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_K
 - Clients (`db`, Anthropic) are lazily created so `next build` works without env vars; keep that pattern. Route handlers declare `export const dynamic = "force-dynamic"`.
 - Timezone is handled by hand as UTC−3 (`Date.now() - 3 * 3600000`) throughout.
 - Phone numbers are normalized to digits with `55` DDI (`normalizarTelefone`); sending to the company's own number is rejected up front because Meta only returns a generic error.
-- `supabase/schema.sql` is out of date with the code: it lacks `empresas` columns (`slug`, `phone_number_id`, `whatsapp_token`, `dono_whatsapp`, `senha_painel`, `teto_mensagens`, `catalogo`, `ativa`), `contas_receber.ultimo_aviso`, and the `contratos` and `documentos` tables. Update it when touching the data model.
-- `app/page.js` calls `/api/levantamento`, which does not exist in the repo.
 - The model ID is hardcoded in `lib/agente.js`.
