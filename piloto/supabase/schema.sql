@@ -20,6 +20,14 @@ alter table empresas add column if not exists ativa boolean default true;
 create unique index if not exists empresas_phone on empresas (phone_number_id) where phone_number_id is not null;
 create unique index if not exists empresas_slug on empresas (slug) where slug is not null;
 
+-- Anúncios (agente de marketing). Só leitura: no Google, o usuário da agência é
+-- convidado com acesso "Somente leitura"; no Meta, o token tem só ads_read.
+alter table empresas add column if not exists google_ads_customer_id text;   -- 10 dígitos, sem traço
+alter table empresas add column if not exists google_ads_refresh_token text;
+alter table empresas add column if not exists meta_ad_account_id text;       -- sem o prefixo act_
+alter table empresas add column if not exists meta_ads_token text;
+alter table empresas add column if not exists marketing_config jsonb;        -- limites e o que conta como resultado; vazio = padrão do código
+
 create table if not exists clientes (
   id uuid primary key default gen_random_uuid(),
   empresa_id uuid references empresas(id) not null,
@@ -101,6 +109,20 @@ create table if not exists eventos (
   tipo text not null,                           -- mensagem_recebida | resposta_ia | escalado | agendamento | cobranca_enviada | erro
   detalhe jsonb,
   criado_em timestamptz default now()
+);
+
+-- Resumo semanal de anúncios esperando o dono responder ao template de aviso.
+-- Existe por causa da janela de 24h do WhatsApp: o texto completo só pode sair
+-- depois que o dono escreve.
+create table if not exists resumos_marketing (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid references empresas(id) not null,
+  periodo text not null,                        -- "21/09 a 27/09"
+  texto text not null,
+  status text default 'pendente',               -- pendente | enviando | enviado | expirado | falhou
+  resposta_wa_id text,                          -- mensagem do dono que disparou a entrega
+  criado_em timestamptz default now(),
+  enviado_em timestamptz
 );
 
 -- Empresa piloto (troque o nome)

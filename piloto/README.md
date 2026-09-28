@@ -49,6 +49,21 @@ Abra `https://seu-projeto.vercel.app`, entre com `PAINEL_SENHA`.
    `curl -X POST https://seu-projeto.vercel.app/api/cobranca -H "Content-Type: application/json" -d '{"senha":"SUA_SENHA","dias_min":3}'`
 3. Quando o cliente pagar, mude `status` para `pago`.
 
+### 9. Marketing (resumo semanal de anúncios)
+Toda segunda às 8h o dono recebe um aviso no WhatsApp; quando responde, recebe o resumo da semana anterior (gasto, comparação, resultado por campanha, o que olhar). Só leitura: o sistema nunca cria, pausa ou altera campanha.
+
+1. Template de aviso: WhatsApp Manager > Message templates > criar `resumo_anuncios_pronto`, categoria Utility, idioma pt_BR, corpo:
+   `O resumo semanal dos anúncios da {{1}}, referente a {{2}}, está pronto. Responda esta mensagem para receber aqui.`
+   Botão de resposta rápida: `Ver resumo`. Exemplos para a Meta: {{1}} = `Eco+ Gestão de Resíduos`, {{2}} = `21/09 a 27/09`.
+2. Rode de novo `supabase/schema.sql` (cria as colunas de anúncio e a tabela `resumos_marketing`).
+3. Google Ads (uma vez, da agência): projeto OAuth no Google Cloud publicado em produção (em "Teste" o refresh token expira em 7 dias) e developer token com acesso Basic. Cadastre `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_CLIENT_ID` e `GOOGLE_ADS_CLIENT_SECRET` na Vercel.
+4. Google Ads (cada cliente): em Ferramentas > Acesso e segurança, o cliente convida o e-mail Google da agência com acesso **Somente leitura**. Na tabela `empresas`, preencha `google_ads_customer_id` (10 dígitos) e `google_ads_refresh_token` (gerado autorizando com o usuário da agência).
+5. Meta Ads (cada cliente): o cliente dá ao nosso Business acesso de parceiro à conta de anúncios só para ver desempenho, ou cria um usuário do sistema com essa permissão e gera um token só com `ads_read`. Preencha `meta_ad_account_id` e `meta_ads_token`.
+6. Opcional, em `marketing_config`: `{"resultado_meta": ["lead"], "gasto_minimo_alerta": 100, "resultados_minimos": 3, "resultado_singular": "lead", "resultado_plural": "leads"}`.
+7. Confira no painel, aba Marketing > Gerar prévia.
+
+Empresa sem essas colunas preenchidas é ignorada.
+
 ## Rodar local
 ```
 cp .env.example .env

@@ -55,6 +55,16 @@ export function donoDe(empresa) {
   return (empresa && empresa.dono_whatsapp) || process.env.DONO_WHATSAPP || null;
 }
 
+// Credenciais de anúncio ficam fora de CAMPOS_EMPRESA de propósito: aquela lista
+// é carregada em toda requisição do painel e do webhook, e estes tokens só
+// precisam existir dentro do agente de marketing.
+export async function credenciaisAnuncios(empresa_id) {
+  const { data } = await db.from("empresas")
+    .select("google_ads_customer_id, google_ads_refresh_token, meta_ad_account_id, meta_ads_token, marketing_config")
+    .eq("id", empresa_id).maybeSingle();
+  return data || null;
+}
+
 // ---------- autenticação do painel ----------
 // A senha do .env é a chave mestra (EJ Digital) e enxerga todas as empresas.
 // Cada empresa pode ter a própria senha e enxerga só a si mesma.

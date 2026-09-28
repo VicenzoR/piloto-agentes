@@ -22,6 +22,7 @@ export default function Painel() {
   const [colagem, setColagem] = useState("");
   const [aviso, setAviso] = useState("");
   const [resumo, setResumo] = useState("");
+  const [resumoMkt, setResumoMkt] = useState("");
   const [empresaId, setEmpresaId] = useState("");   // empresa selecionada no topo
 
   const carregar = async (s = senha, emp = empresaId) => {
@@ -34,7 +35,7 @@ export default function Painel() {
   };
   useEffect(() => { if (ok) { const t = setInterval(() => carregar(), 10000); return () => clearInterval(t); } }, [ok, empresaId]);
   // Troca de empresa recarrega tudo: conversas, contas e resumo são por empresa.
-  useEffect(() => { if (ok && empresaId) { carregar(); setContas(null); setResumo(""); } }, [empresaId]);
+  useEffect(() => { if (ok && empresaId) { carregar(); setContas(null); setResumo(""); setResumoMkt(""); } }, [empresaId]);
 
   const carregarContas = async () => {
     const r = await fetch("/api/contas?empresa_id=" + empresaId, { headers: { "x-senha": senha } });
@@ -76,6 +77,14 @@ export default function Painel() {
     if (enviarNoZap) setAviso(d.enviado ? "Resumo enviado no WhatsApp do dono." : "Não enviou: " + (d.erro || "erro desconhecido"));
   };
 
+  // Só prévia: o envio do resumo de marketing é pelo cron semanal, com aviso ao dono antes.
+  const gerarResumoMarketing = async () => {
+    setResumoMkt("Lendo as campanhas...");
+    const r = await fetch("/api/marketing", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ empresa_id: empresaId }) });
+    const d = await r.json();
+    setResumoMkt(d.texto || d.erro || "Não consegui gerar.");
+  };
+
   const enviar = async (body) => {
     await fetch("/api/enviar", { method: "POST", headers: { "Content-Type": "application/json", "x-senha": senha }, body: JSON.stringify({ conversa_id: sel, empresa_id: empresaId, ...body }) });
     setTexto(""); carregar();
@@ -108,7 +117,7 @@ export default function Painel() {
       <p style={{ color: "#666", fontSize: 14 }}>{dados.conversas.length} conversas · {escaladas} aguardando a equipe · {dados.agendamentos.length} pedidos de agendamento</p>
 
       <div style={{ display: "flex", gap: 8, margin: "12px 0 16px" }}>
-        {[["conversas", "Atendimento"], ["contas", "Cobrança"], ["gestor", "Gestor"]].map(([id, label]) => (
+        {[["conversas", "Atendimento"], ["contas", "Cobrança"], ["gestor", "Gestor"], ["marketing", "Marketing"]].map(([id, label]) => (
           <button key={id} onClick={() => setAba(id)} style={{ ...S.btn2, background: aba === id ? "#0f7b6c" : "#fff", color: aba === id ? "#fff" : "#333", borderColor: aba === id ? "#0f7b6c" : "#bbb" }}>{label}</button>
         ))}
       </div>
@@ -191,6 +200,20 @@ export default function Painel() {
           </div>
           {resumo && (
             <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 14, background: "#f7f8f9", border: "1px solid #e3e6ea", borderRadius: 6, padding: 12, marginTop: 12 }}>{resumo}</pre>
+          )}
+        </div>
+      )}
+
+      {aba === "marketing" && (
+        <div style={S.card}>
+          <h3 style={{ marginTop: 0, fontSize: 15 }}>Resumo semanal de anúncios</h3>
+          <p style={{ fontSize: 13, color: "#666", marginTop: 0 }}>
+            Toda segunda o dono recebe um aviso no WhatsApp e, quando responde, recebe este resumo da semana anterior.
+            Só leitura: nada é alterado nas campanhas.
+          </p>
+          <button style={S.btn2} onClick={gerarResumoMarketing}>Gerar prévia</button>
+          {resumoMkt && (
+            <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 14, background: "#f7f8f9", border: "1px solid #e3e6ea", borderRadius: 6, padding: 12, marginTop: 12 }}>{resumoMkt}</pre>
           )}
         </div>
       )}

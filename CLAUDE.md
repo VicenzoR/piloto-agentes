@@ -18,7 +18,7 @@ npm run build    # production build (also the only "check" available)
 
 There is no test suite, linter or formatter configured. To receive webhooks locally, expose the dev server (`npx ngrok http 3000`) and register that URL in the Meta app. The README references `.env.example`, but it is not in the repo.
 
-Environment variables used: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `WHATSAPP_VERIFY_TOKEN`, `META_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_TOKEN` / `DONO_WHATSAPP` (fallbacks only), `PAINEL_SENHA` (master panel password), `CRON_SECRET`, `TETO_MENSAGENS_MES`.
+Environment variables used: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `WHATSAPP_VERIFY_TOKEN`, `META_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_TOKEN` / `DONO_WHATSAPP` (fallbacks only), `PAINEL_SENHA` (master panel password), `CRON_SECRET`, `TETO_MENSAGENS_MES`, `GOOGLE_ADS_DEVELOPER_TOKEN` / `GOOGLE_ADS_CLIENT_ID` / `GOOGLE_ADS_CLIENT_SECRET` (agency-level, not per client).
 
 ## Architecture
 
@@ -39,9 +39,11 @@ Environment variables used: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_K
 
 **Other routes:** `conversas` (panel list), `enviar` (human takes over / replies / hands back to AI), `contas` (receivables CRUD, paste-from-spreadsheet import with dedupe on phone+value+due date), `cobranca` (sends Meta-approved templates `lembrete_vencimento` / `aviso_vencimento`, business hours 8–20h Brasília, at most once a week per account), `gestor` (daily owner summary; Vercel cron in `vercel.json` hits GET with `Bearer CRON_SECRET` and loops all companies; all numbers are computed, never AI-generated).
 
+**Marketing agent — `lib/marketing.js`, `lib/anuncios/`, `app/api/marketing`:** weekly (Monday cron) summary of Google Ads + Meta Ads per company. **Read-only, strictly:** `lib/anuncios/google.js` only calls `googleAds:search`, `lib/anuncios/meta.js` only issues GET; never add create/pause/update/budget calls — errors spend the client's real money. Per-company credentials live in `empresas` (`google_ads_*`, `meta_*`, `marketing_config`), loaded only via `credenciaisAnuncios` (kept out of `CAMPOS_EMPRESA`); the three agency-level Google credentials are env vars. Numbers are computed in code, never AI-generated. Because of WhatsApp's 24h window, the cron stores the text in `resumos_marketing` and sends the `resumo_anuncios_pronto` template; the webhook calls `entregarResumoPendente` first and, when the owner replies, delivers the text instead of routing the message to the AI. Companies without credentials are skipped silently.
+
 **Panel — `app/page.js`:** a single client component with inline styles; polls `/api/conversas` every 10s.
 
-**Monthly cap — `lib/limites.js`:** usage is counted from `eventos` rows of types `resposta_ia`, `cobranca_enviada`, `aviso_enviado`, `resumo_enviado`. New outbound message types must log one of these (or be added to the list) to be counted.
+**Monthly cap — `lib/limites.js`:** usage is counted from `eventos` rows of types `resposta_ia`, `cobranca_enviada`, `aviso_enviado`, `resumo_enviado`, `resumo_marketing_aviso`, `resumo_marketing_enviado`. New outbound message types must log one of these (or be added to the list) to be counted.
 
 ## Gotchas
 

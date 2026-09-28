@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 // Teto de mensagens por mês. O contrato precisa de um limite: a API do WhatsApp
 // e o modelo de IA cobram por uso, e plano fixo sem teto vira prejuízo.
 // Ajuste por empresa com a variável TETO_MENSAGENS_MES (padrão 1000).
-const TIPOS_QUE_CONTAM = ["resposta_ia", "cobranca_enviada", "aviso_enviado", "resumo_enviado"];
+const TIPOS_QUE_CONTAM = ["resposta_ia", "cobranca_enviada", "aviso_enviado", "resumo_enviado", "resumo_marketing_aviso", "resumo_marketing_enviado"];
 
 // Teto por empresa (coluna teto_mensagens). O valor do .env vira só o padrão.
 export function teto(empresa) {

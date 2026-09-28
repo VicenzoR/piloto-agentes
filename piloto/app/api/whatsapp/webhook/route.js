@@ -5,6 +5,7 @@ import { empresaPorPhoneId, obterConversa, salvarMensagem, historico, registrarE
 import { enviarTexto } from "@/lib/whatsapp";
 import { responder } from "@/lib/agente";
 import { podeEnviar } from "@/lib/limites";
+import { entregarResumoPendente } from "@/lib/marketing";
 
 // Verificação do webhook (Meta chama uma vez ao configurar)
 export async function GET(req) {
@@ -69,6 +70,9 @@ export async function POST(req) {
     }
 
     const msg = value?.messages?.[0];
+    // Resposta do dono ao aviso do resumo de anúncios. Vem antes do filtro de
+    // tipo porque o dono pode tocar no botão do template, que não chega como texto.
+    if (msg && await entregarResumoPendente(empresa, msg.from, msg.id)) return NextResponse.json({ ok: true });
     if (!msg || msg.type !== "text") return NextResponse.json({ ok: true }); // status de entrega, mídia etc.
 
     const telefone = msg.from;
